@@ -1,106 +1,156 @@
 require('dotenv').config();
 
 const { startAttendance } = require('./attendance');
+const fs = require('fs');
 
-const CLOCK_IN_HOUR =
-    Number(process.env.CLOCK_IN_HOUR || 9);
+const START_HOUR = 8;
+const START_MINUTE = 30;
 
-const CLOCK_IN_MINUTE =
-    Number(process.env.CLOCK_IN_MINUTE || 0);
+const END_HOUR = 9;
+const END_MINUTE = 30;
 
-function getNextRun() {
-    const now = new Date();
-    const next = new Date(now);
+const STATE_DIR = 'state';
+const STATE_FILE = `${STATE_DIR}/last-run.json`;
 
-    next.setHours(
-        CLOCK_IN_HOUR,
-        CLOCK_IN_MINUTE,
-        0,
-        0
-    );
+let automationRunning = false;
 
-    /*
-     * JavaScript:
-     * Sunday    = 0
-     * Monday    = 1
-     * Tuesday   = 2
-     * Wednesday = 3
-     * Thursday  = 4
-     * Friday    = 5
-     * Saturday  = 6
-     */
+function isWeekday() {
+    const day = new Date().getDay();
 
-    let daysToAdd = 0;
+    // Sunday = 0
+    // Monday = 1
+    // ...
+    // Saturday = 6
 
-    // Sunday → Monday
-    if (now.getDay() === 0) {
-        daysToAdd = 1;
-    }
-
-    // Saturday after today's 9 AM → Monday
-    else if (
-        now.getDay() === 6 &&
-        now >= next
-    ) {
-        daysToAdd = 2;
-    }
-
-    // Monday-Friday after 9 AM → tomorrow
-    else if (
-        now.getDay() >= 1 &&
-        now.getDay() <= 5 &&
-        now >= next
-    ) {
-        daysToAdd = 1;
-    }
-
-    next.setDate(next.getDate() + daysToAdd);
-
-    // If calculated day is Sunday, move to Monday.
-    if (next.getDay() === 0) {
-        next.setDate(next.getDate() + 1);
-    }
-
-    return next;
+    return day >= 1 && day <= 6;
 }
 
-async function scheduleNextRun() {
-    const nextRun = getNextRun();
+function isWithinAttendanceWindow() {
+    const now = new Date();
 
-    const delay =
-        nextRun.getTime() - Date.now();
+    const currentMinutes =
+        now.getHours() * 60 + now.getMinutes();
+
+    const startMinutes =
+        START_HOUR * 60 + START_MINUTE;
+
+    const endMinutes =
+        END_HOUR * 60 + END_MINUTE;
+
+    return (
+        currentMinutes >= startMinutes &&
+        currentMinutes <= endMinutes
+    );
+}
+
+function getTodayString() {
+    const now = new Date();
+
+    return [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0')
+    ].join('-');
+}
+
+function hasRunToday() {
+    if (!fs.existsSync(STATE_FILE)) {
+        return false;
+    }
+
+    try {
+        const state = JSON.parse(
+            fs.readFileSync(STATE_FILE, 'utf8')
+        );
+
+        return state.lastRunDate === getTodayString();
+    } catch {
+        return false;
+    }
+}
+
+function markRunToday() {
+    fs.mkdirSync(STATE_DIR, {
+        recursive: true
+    });
+
+    fs.writeFileSync(
+        STATE_FILE,
+        JSON.stringify(
+            {
+                lastRunDate: getTodayString()
+            },
+            null,
+            2
+        )
+    );
+}
+
+async function checkAndRun() {
+    if (automationRunning) {
+        return;
+    }
+
+    if (!isWeekday()) {
+        return;
+    }
+
+    if (!isWithinAttendanceWindow()) {
+        return;
+    }
+
+    if (hasRunToday()) {
+        return;
+    }
+
+    automationRunning = true;
 
     console.log('');
     console.log('=================================');
-    console.log('Attendance Automator');
+    console.log('Attendance window reached');
     console.log(
-        'Current time:',
+        'Time:',
         new Date().toLocaleString('en-IN', {
             timeZone: 'Asia/Kolkata'
         })
     );
+    console.log('=================================');
 
+    try {
+        await startAttendance();
+
+        // Mark the day as completed after the automation finishes.
+        markRunToday();
+
+        console.log('✅ Today\'s attendance automation completed.');
+    } catch (error) {
+        console.error(
+            '❌ Attendance automation failed:',
+            error.message
+        );
+    } finally {
+        automationRunning = false;
+    }
+}
+
+function startScheduler() {
+    console.log('');
+    console.log('=================================');
+    console.log('Attendance Automator');
+    console.log('Window: Monday–Saturday');
+    console.log('Time: 08:30 AM – 09:30 AM');
     console.log(
-        'Next run:',
-        nextRun.toLocaleString('en-IN', {
+        'Started:',
+        new Date().toLocaleString('en-IN', {
             timeZone: 'Asia/Kolkata'
         })
     );
-
     console.log('=================================');
 
-    setTimeout(async () => {
-        try {
-            await startAttendance();
-        } catch (error) {
-            console.error(
-                'Automation error:',
-                error.message
-            );
-        }
+    // Check every 30 seconds.
+    checkAndRun();
 
-        scheduleNextRun();
-    }, Math.max(delay, 1000));
+    setInterval(checkAndRun, 30000);
 }
 
-scheduleNextRun();
+startScheduler();
