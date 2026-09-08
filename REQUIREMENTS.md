@@ -168,3 +168,6 @@ The automation should be independently testable using:
 
 ```bash
 node test-attendance.js
+
+
+Chatgpt link : https://chatgpt.com/share/6a9f9788-3648-83e8-b7e1-3e92291d53c9
