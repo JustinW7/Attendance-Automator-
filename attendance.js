@@ -3,7 +3,6 @@ require('dotenv').config();
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 
 const HRMS_URL =
     process.env.HRMS_URL || 'https://nexpeople.cygnoz.com/me';
@@ -40,6 +39,7 @@ function hasRunToday() {
         );
 
         return state.lastRunDate === getToday();
+
     } catch {
         return false;
     }
@@ -72,8 +72,8 @@ function isWithinAttendanceWindow() {
     const currentMinutes =
         now.getHours() * 60 + now.getMinutes();
 
-    const startMinutes = 8 * 60 + 30; // 08:30
-    const endMinutes = 9 * 60 + 30;   // 09:30
+    const startMinutes = 8 * 60 + 30;
+    const endMinutes = 9 * 60 + 30;
 
     return (
         currentMinutes >= startMinutes &&
@@ -82,120 +82,315 @@ function isWithinAttendanceWindow() {
 }
 
 // ======================================================
-// FIREFOX RESULT PAGE
+// TIME
 // ======================================================
 
-function showFirefoxResult({
-    success,
-    title,
-    message,
-    time
-}) {
-    try {
-        fs.mkdirSync(STATE_DIR, {
-            recursive: true
-        });
+function getCurrentTime() {
+    return new Date().toLocaleTimeString(
+        'en-IN',
+        {
+            timeZone: 'Asia/Kolkata'
+        }
+    );
+}
 
-        const htmlFile = path.resolve(
-            STATE_DIR,
-            'attendance-result.html'
-        );
+// ======================================================
+// ESCAPE HTML
+// ======================================================
 
-        const background = success
-            ? '#16a34a'
-            : '#dc2626';
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
 
-        const icon = success
-            ? '✓'
-            : '✕';
+// ======================================================
+// RESULT PAGE
+// ======================================================
 
-        const html = `
+async function showResultPage(
+    page,
+    {
+        success,
+        title,
+        message,
+        time,
+        retryAvailable = false
+    }
+) {
+    const background = success
+        ? '#16a34a'
+        : '#dc2626';
+
+    const icon = success
+        ? '✓'
+        : '✕';
+
+    const button = retryAvailable
+        ? `
+            <button id="tryAgain">
+                ↻ Try Again
+            </button>
+        `
+        : '';
+
+    const html = `
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
+
     <title>Attendance Automator</title>
 
     <style>
+
         * {
             box-sizing: border-box;
         }
 
         body {
             margin: 0;
+
             min-height: 100vh;
+
             display: flex;
+
             align-items: center;
             justify-content: center;
-            font-family: Arial, sans-serif;
-            background: #f3f4f6;
+
+            font-family:
+                Arial,
+                Helvetica,
+                sans-serif;
+
+            background:
+                #f3f4f6;
         }
 
         .card {
+
             width: 520px;
+
             max-width: 90%;
+
             background: white;
-            border-radius: 20px;
-            padding: 50px 40px;
+
+            border-radius: 22px;
+
+            padding:
+                50px 40px;
+
             text-align: center;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+
+            box-shadow:
+                0 20px 60px
+                rgba(0,0,0,0.15);
         }
 
         .icon {
+
             width: 90px;
             height: 90px;
-            margin: 0 auto 25px;
+
+            margin:
+                0 auto 25px;
+
             border-radius: 50%;
-            background: ${background};
+
+            background:
+                ${background};
+
             color: white;
+
             display: flex;
+
             align-items: center;
             justify-content: center;
+
             font-size: 55px;
+
             font-weight: bold;
         }
 
         h1 {
-            margin: 0 0 15px;
+
+            margin:
+                0 0 15px;
+
             font-size: 30px;
-            color: #111827;
+
+            color:
+                #111827;
         }
 
         p {
-            margin: 10px 0;
-            color: #4b5563;
+
+            margin:
+                10px 0;
+
+            color:
+                #4b5563;
+
             font-size: 17px;
+
             line-height: 1.6;
         }
 
+        .reason {
+
+            margin-top: 20px;
+
+            padding: 15px;
+
+            border-radius: 10px;
+
+            background:
+                #f9fafb;
+
+            color:
+                #374151;
+
+            font-size: 15px;
+
+            line-height: 1.5;
+        }
+
         .time {
+
             margin-top: 25px;
+
             font-weight: bold;
-            color: #111827;
+
+            color:
+                #111827;
+        }
+
+        button {
+
+            margin-top: 28px;
+
+            padding:
+                14px 28px;
+
+            border: none;
+
+            border-radius: 10px;
+
+            background:
+                #2563eb;
+
+            color: white;
+
+            font-size: 17px;
+
+            font-weight: bold;
+
+            cursor: pointer;
+
+            transition:
+                transform 0.15s,
+                opacity 0.15s;
+        }
+
+        button:hover {
+
+            opacity: 0.9;
+
+            transform:
+                translateY(-1px);
+        }
+
+        button:active {
+
+            transform:
+                translateY(0);
         }
 
         .status {
-            margin-top: 25px;
+
+            margin-top: 28px;
+
             padding: 12px;
+
             border-radius: 10px;
-            background: #f3f4f6;
-            color: #374151;
+
+            background:
+                #f3f4f6;
+
+            color:
+                #374151;
+
+            font-size: 14px;
         }
+
+        .retry-info {
+
+            margin-top: 12px;
+
+            font-size: 13px;
+
+            color:
+                #6b7280;
+        }
+
     </style>
+
 </head>
 
 <body>
+
     <div class="card">
 
-        <div class="icon">${icon}</div>
+        <div class="icon">
+            ${icon}
+        </div>
 
-        <h1>${title}</h1>
+        <h1>
+            ${escapeHtml(title)}
+        </h1>
 
-        <p>${message}</p>
+        <p>
+            ${
+                success
+                    ? escapeHtml(message)
+                    : 'Your attendance was not marked.'
+            }
+        </p>
+
+        ${
+            !success
+                ? `
+                    <div class="reason">
+                        ${escapeHtml(message)}
+                    </div>
+                `
+                : ''
+        }
 
         ${
             time
-                ? `<div class="time">Time: ${time}</div>`
+                ? `
+                    <div class="time">
+                        Time: ${escapeHtml(time)}
+                    </div>
+                `
+                : ''
+        }
+
+        ${button}
+
+        ${
+            retryAvailable
+                ? `
+                    <div class="retry-info">
+                        You can retry the attendance process
+                        from this tab.
+                    </div>
+                `
                 : ''
         }
 
@@ -204,47 +399,707 @@ function showFirefoxResult({
         </div>
 
     </div>
+
 </body>
 </html>
 `;
 
-        fs.writeFileSync(
-            htmlFile,
-            html,
-            'utf8'
-        );
+    await page.setContent(html);
 
-        const fileUrl =
-            `file://${htmlFile}`;
+    // --------------------------------------------------
+    // WAIT FOR TRY AGAIN
+    // --------------------------------------------------
+
+    if (retryAvailable) {
+
+        await page
+            .locator('#tryAgain')
+            .waitFor({
+                state: 'visible'
+            });
+
+        await page
+            .locator('#tryAgain')
+            .click();
+
+        console.log('');
+        console.log(
+            '🔄 Try Again clicked.'
+        );
 
         console.log(
-            success
-                ? 'Opening Firefox success page...'
-                : 'Opening Firefox failure page...'
+            'Restarting attendance process...'
         );
 
-        // Try Firefox first.
-        const firefox = spawn(
-            'firefox',
-            ['--new-tab', fileUrl],
+        return true;
+    }
+
+    return false;
+}
+
+// ======================================================
+// OUTLOOK LOGIN
+// ======================================================
+
+async function handleOutlookLogin(outlookPage) {
+
+    console.log('');
+    console.log(
+        'Checking Outlook login...'
+    );
+
+    // --------------------------------------------------
+    // WAIT FOR INITIAL OUTLOOK PAGE
+    // --------------------------------------------------
+
+    await outlookPage.waitForTimeout(3000);
+
+    // --------------------------------------------------
+    // EMAIL
+    // --------------------------------------------------
+
+    const emailInput =
+        outlookPage
+            .locator(
+                'input[type="email"], input[name="loginfmt"]'
+            )
+            .first();
+
+    if (
+        await emailInput.count() > 0 &&
+        await emailInput.isVisible()
+    ) {
+
+        console.log(
+            'Outlook email field found.'
+        );
+
+        if (!process.env.HRMS_EMAIL) {
+            throw new Error(
+                'HRMS_EMAIL is not configured in .env.'
+            );
+        }
+
+        await emailInput.fill(
+            process.env.OUTLOOK_EMAIL
+        );
+
+        console.log(
+            '✅ Outlook email entered.'
+        );
+
+        const nextButton =
+            outlookPage
+                .getByRole(
+                    'button',
+                    {
+                        name: /Next/i
+                    }
+                )
+                .first();
+
+        if (
+            await nextButton.count() > 0 &&
+            await nextButton.isVisible()
+        ) {
+
+            await nextButton.click();
+
+            console.log(
+                'Outlook Next clicked.'
+            );
+
+            await outlookPage.waitForTimeout(
+                2000
+            );
+        }
+    }
+
+    // --------------------------------------------------
+    // PASSWORD
+    // --------------------------------------------------
+
+    const passwordInput =
+        outlookPage
+            .locator(
+                'input[type="password"], input[name="passwd"]'
+            )
+            .first();
+
+    if (
+        await passwordInput.count() > 0 &&
+        await passwordInput.isVisible()
+    ) {
+
+        console.log(
+            'Outlook password field found.'
+        );
+
+        if (!process.env.HRMS_PASSWORD) {
+            throw new Error(
+                'HRMS_PASSWORD is not configured in .env.'
+            );
+        }
+
+        await passwordInput.fill(
+            process.env.OUTLOOK_PASSWORD
+        );
+
+        console.log(
+            '✅ Outlook password entered.'
+        );
+
+        const signInButton =
+            outlookPage
+                .getByRole(
+                    'button',
+                    {
+                        name: /Sign in/i
+                    }
+                )
+                .first();
+
+        if (
+            await signInButton.count() > 0 &&
+            await signInButton.isVisible()
+        ) {
+
+            await signInButton.click();
+
+            console.log(
+                'Outlook Sign in clicked.'
+            );
+
+            await outlookPage.waitForTimeout(
+                5000
+            );
+        }
+    }
+
+    // --------------------------------------------------
+    // MICROSOFT "STAY SIGNED IN"
+    // --------------------------------------------------
+
+    try {
+
+        const staySignedInButton =
+            outlookPage
+                .getByRole(
+                    'button',
+                    {
+                        name: /Yes/i
+                    }
+                )
+                .first();
+
+        if (
+            await staySignedInButton.count() > 0 &&
+            await staySignedInButton.isVisible({
+                timeout: 3000
+            })
+        ) {
+
+            console.log(
+                'Microsoft "Stay signed in" prompt found.'
+            );
+
+            await staySignedInButton.click();
+
+            console.log(
+                '✅ Stay signed in selected.'
+            );
+
+            await outlookPage.waitForTimeout(
+                3000
+            );
+        }
+
+    } catch {
+        // No "Stay signed in" prompt.
+    }
+
+    // --------------------------------------------------
+    // CHECK FINAL STATE
+    // --------------------------------------------------
+
+    console.log(
+        'Outlook URL:',
+        outlookPage.url()
+    );
+
+    console.log(
+        'Outlook login check completed.'
+    );
+}
+
+// ======================================================
+// LOGIN
+// ======================================================
+
+async function handleLogin(
+    page,
+    context
+) {
+
+    if (
+        !page.url().includes('/login')
+    ) {
+
+        console.log(
+            '✅ Existing NexPeople session is valid.'
+        );
+
+        return;
+    }
+
+    console.log(
+        'Login required.'
+    );
+
+    const inputs =
+        page.locator('input');
+
+    if (
+        await inputs.count() < 2
+    ) {
+
+        throw new Error(
+            'NexPeople login fields were not found.'
+        );
+    }
+
+    // --------------------------------------------------
+    // NEXPEOPLE EMAIL
+    // --------------------------------------------------
+
+    await inputs
+        .nth(0)
+        .fill(
+            process.env.HRMS_EMAIL
+        );
+
+    // --------------------------------------------------
+    // NEXPEOPLE PASSWORD
+    // --------------------------------------------------
+
+    await inputs
+        .nth(1)
+        .fill(
+            process.env.HRMS_PASSWORD
+        );
+
+    console.log(
+        'Email and password entered.'
+    );
+
+    await page
+        .getByRole(
+            'button',
             {
-                detached: true,
-                stdio: 'ignore'
+                name: 'Login'
+            }
+        )
+        .click();
+
+    console.log(
+        'Login clicked.'
+    );
+
+    await page.waitForTimeout(
+        3000
+    );
+
+    // --------------------------------------------------
+    // OPEN OUTLOOK
+    // --------------------------------------------------
+
+    const outlookPage =
+        await context.newPage();
+
+    console.log(
+        'Opening Outlook in a new tab...'
+    );
+
+    await outlookPage.goto(
+        OUTLOOK_URL,
+        {
+            waitUntil:
+                'domcontentloaded',
+
+            timeout:
+                60000
+        }
+    );
+
+    // --------------------------------------------------
+    // AUTOMATIC OUTLOOK LOGIN
+    // --------------------------------------------------
+
+    try {
+
+        await handleOutlookLogin(
+            outlookPage
+        );
+
+    } catch (error) {
+
+        console.log('');
+        console.log(
+            '⚠️ Outlook automatic login could not be completed.'
+        );
+
+        console.log(
+            error.message
+        );
+
+        console.log(
+            'You can complete Outlook login manually.'
+        );
+    }
+
+    // --------------------------------------------------
+    // OTP INSTRUCTIONS
+    // --------------------------------------------------
+
+    console.log('');
+    console.log(
+        '================================='
+    );
+
+    console.log(
+        '🔐 OTP / LOGIN VERIFICATION'
+    );
+
+    console.log(
+        '================================='
+    );
+
+    console.log(
+        'Outlook is open in another tab.'
+    );
+
+    console.log(
+        'Find the latest NexPeople OTP email.'
+    );
+
+    console.log(
+        'Enter the OTP in the NexPeople tab.'
+    );
+
+    console.log(
+        'Waiting up to 10 minutes...'
+    );
+
+    console.log(
+        '================================='
+    );
+
+    try {
+
+        await page.waitForURL(
+            url =>
+                !url
+                    .toString()
+                    .includes('/login'),
+
+            {
+                timeout:
+                    600000
             }
         );
 
-        firefox.unref();
+    } catch {
 
-    } catch (error) {
-        console.error(
-            'Could not open Firefox result page:',
-            error.message
+        // --------------------------------------------------
+        // OTP FAILURE
+        // --------------------------------------------------
+
+        console.log(
+            '❌ OTP/login verification timed out.'
+        );
+
+        // IMPORTANT:
+        // Do NOT close Outlook here.
+        //
+        // The browser remains open.
+        // The failure page will provide Try Again.
+
+        throw new Error(
+            'OTP could not be verified within 10 minutes. Outlook remains open so you can check the OTP.'
+        );
+    }
+
+    console.log(
+        '✅ Login successful.'
+    );
+
+    await context.storageState({
+        path: AUTH_FILE
+    });
+
+    console.log(
+        '✅ New session saved.'
+    );
+
+    // --------------------------------------------------
+    // CLOSE OUTLOOK AFTER SUCCESS
+    // --------------------------------------------------
+
+    if (
+        !outlookPage.isClosed()
+    ) {
+
+        await outlookPage.close();
+
+        console.log(
+            'Outlook tab closed after successful login.'
         );
     }
 }
 
 // ======================================================
-// MAIN ATTENDANCE FUNCTION
+// SINGLE ATTENDANCE ATTEMPT
+// ======================================================
+
+async function runAttendanceAttempt(
+    page,
+    context
+) {
+
+    console.log('');
+    console.log(
+        '================================='
+    );
+
+    console.log(
+        'Starting Attendance Attempt'
+    );
+
+    console.log(
+        getCurrentTime()
+    );
+
+    console.log(
+        '================================='
+    );
+
+    // --------------------------------------------------
+    // OPEN NEXPEOPLE
+    // --------------------------------------------------
+
+    console.log(
+        'Opening NexPeople...'
+    );
+
+    await page.goto(
+        HRMS_URL,
+        {
+            waitUntil:
+                'networkidle',
+
+            timeout:
+                60000
+        }
+    );
+
+    console.log(
+        'Current URL:',
+        page.url()
+    );
+
+    // --------------------------------------------------
+    // LOGIN
+    // --------------------------------------------------
+
+    await handleLogin(
+        page,
+        context
+    );
+
+    // --------------------------------------------------
+    // OPEN ME
+    // --------------------------------------------------
+
+    await page.goto(
+        HRMS_URL,
+        {
+            waitUntil:
+                'networkidle',
+
+            timeout:
+                60000
+        }
+    );
+
+    console.log(
+        'Me page loaded:',
+        page.url()
+    );
+
+    // --------------------------------------------------
+    // WAIT FOR PAGE
+    // --------------------------------------------------
+
+    await page.waitForTimeout(
+        2000
+    );
+
+    // --------------------------------------------------
+    // ATTENDANCE BUTTONS
+    // --------------------------------------------------
+
+    const clockOutButton =
+        page
+            .locator('button')
+            .filter({
+                hasText:
+                    /^Clock Out$/
+            })
+            .first();
+
+    const clockInButton =
+        page
+            .locator('button')
+            .filter({
+                hasText:
+                    /^Clock In$/
+            })
+            .first();
+
+    // --------------------------------------------------
+    // ALREADY CLOCKED IN
+    // --------------------------------------------------
+
+    if (
+        await clockOutButton.count() > 0 &&
+        await clockOutButton.isVisible()
+    ) {
+
+        console.log(
+            'Already clocked in.'
+        );
+
+        markRunToday();
+
+        return {
+            success: true,
+
+            title:
+                'Attendance Already Marked',
+
+            message:
+                'Your attendance is already marked for today.'
+        };
+    }
+
+    // --------------------------------------------------
+    // CLOCK IN NOT FOUND
+    // --------------------------------------------------
+
+    if (
+        await clockInButton.count() === 0
+    ) {
+
+        throw new Error(
+            'Clock In button was not found.'
+        );
+    }
+
+    if (
+        !(await clockInButton.isVisible())
+    ) {
+
+        throw new Error(
+            'Clock In button is not visible.'
+        );
+    }
+
+    if (
+        !(await clockInButton.isEnabled())
+    ) {
+
+        throw new Error(
+            'Clock In button is disabled.'
+        );
+    }
+
+    // --------------------------------------------------
+    // CLOCK IN
+    // --------------------------------------------------
+
+    console.log(
+        'Clock In button found.'
+    );
+
+    console.log(
+        'Clicking Clock In...'
+    );
+
+    await clockInButton.click();
+
+    console.log(
+        'Clock In clicked.'
+    );
+
+    // --------------------------------------------------
+    // VERIFY
+    // --------------------------------------------------
+
+    console.log(
+        'Verifying attendance status...'
+    );
+
+    await page.waitForTimeout(
+        3000
+    );
+
+    try {
+
+        await page
+            .locator('button')
+            .filter({
+                hasText:
+                    /^Clock Out$/
+            })
+            .first()
+            .waitFor({
+                state:
+                    'visible',
+
+                timeout:
+                    10000
+            });
+
+    } catch {
+
+        throw new Error(
+            'Clock In was clicked, but NexPeople did not change to Clock Out. Attendance could not be confirmed.'
+        );
+    }
+
+    console.log(
+        '✅ NexPeople now shows Clock Out.'
+    );
+
+    console.log(
+        '✅ Attendance successfully verified.'
+    );
+
+    markRunToday();
+
+    return {
+        success: true,
+
+        title:
+            'Congrats! Attendance Marked',
+
+        message:
+            'Your attendance has been successfully marked for today.'
+    };
+}
+
+// ======================================================
+// MAIN
 // ======================================================
 
 async function startAttendance() {
@@ -253,24 +1108,29 @@ async function startAttendance() {
     // TIME WINDOW
     // --------------------------------------------------
 
-    if (!isWithinAttendanceWindow()) {
+   if (
+    !process.env.TEST_MODE &&
+    !isWithinAttendanceWindow()
+) {
 
-        console.log(
-            `Outside attendance window (${new Date().toLocaleTimeString()}).`
-        );
+    console.log(
+        `Outside attendance window (${getCurrentTime()}).`
+    );
 
-        console.log(
-            'No attendance action taken.'
-        );
+    console.log(
+        'No attendance action taken.'
+    );
 
-        return;
-    }
+    return;
+}
 
     // --------------------------------------------------
-    // ALREADY PROCESSED TODAY
+    // ALREADY COMPLETED
     // --------------------------------------------------
 
-    if (hasRunToday()) {
+    if (
+        hasRunToday()
+    ) {
 
         console.log(
             "Today's attendance has already been processed."
@@ -278,20 +1138,6 @@ async function startAttendance() {
 
         return;
     }
-
-    const startTime =
-        new Date().toLocaleTimeString(
-            'en-IN',
-            {
-                timeZone: 'Asia/Kolkata'
-            }
-        );
-
-    console.log('');
-    console.log('=================================');
-    console.log('Starting Attendance Automator');
-    console.log(startTime);
-    console.log('=================================');
 
     let browser = null;
 
@@ -301,387 +1147,174 @@ async function startAttendance() {
         // START BROWSER
         // --------------------------------------------------
 
-        browser = await chromium.launch({
-            headless: false
-        });
+        browser =
+            await chromium.launch({
+                headless: false
+            });
 
-        const context = await browser.newContext(
-            fs.existsSync(AUTH_FILE)
-                ? {
-                    storageState: AUTH_FILE
-                }
-                : {}
-        );
-
-        const page = await context.newPage();
-
-        // --------------------------------------------------
-        // OPEN NEXPEOPLE
-        // --------------------------------------------------
-
-        console.log(
-            'Opening NexPeople...'
-        );
-
-        await page.goto(
-            HRMS_URL,
-            {
-                waitUntil: 'networkidle',
-                timeout: 60000
-            }
-        );
-
-        console.log(
-            'Current URL:',
-            page.url()
-        );
-
-        // --------------------------------------------------
-        // LOGIN IF SESSION EXPIRED
-        // --------------------------------------------------
-
-        if (
-            page.url().includes('/login')
-        ) {
-
-            console.log(
-                'Login required.'
-            );
-
-            const inputs =
-                page.locator('input');
-
-            if (
-                await inputs.count() < 2
-            ) {
-                throw new Error(
-                    'NexPeople login fields were not found.'
-                );
-            }
-
-            await inputs
-                .nth(0)
-                .fill(
-                    process.env.HRMS_EMAIL
-                );
-
-            await inputs
-                .nth(1)
-                .fill(
-                    process.env.HRMS_PASSWORD
-                );
-
-            console.log(
-                'Email and password entered.'
-            );
-
-            await page
-                .getByRole(
-                    'button',
-                    {
-                        name: 'Login'
+        const context =
+            await browser.newContext(
+                fs.existsSync(AUTH_FILE)
+                    ? {
+                        storageState:
+                            AUTH_FILE
                     }
-                )
-                .click();
-
-            console.log(
-                'Login clicked.'
+                    : {}
             );
-
-            console.log(
-                'Checking whether OTP is required...'
-            );
-
-            await page.waitForTimeout(
-                3000
-            );
-
-            // --------------------------------------------------
-            // OPEN OUTLOOK IN NEW TAB
-            // --------------------------------------------------
-
-            const outlookPage =
-                await context.newPage();
-
-            console.log(
-                'Opening Outlook in a new tab...'
-            );
-
-            await outlookPage.goto(
-                OUTLOOK_URL,
-                {
-                    waitUntil:
-                        'domcontentloaded',
-                    timeout: 60000
-                }
-            );
-
-            console.log('');
-            console.log('=================================');
-            console.log('🔐 OTP REQUIRED');
-            console.log('=================================');
-            console.log(
-                'Outlook is open in another tab.'
-            );
-            console.log(
-                'Open the latest NexPeople OTP email.'
-            );
-            console.log(
-                'Enter the OTP in the NexPeople tab.'
-            );
-            console.log(
-                'Waiting up to 10 minutes...'
-            );
-            console.log('=================================');
-
-            // --------------------------------------------------
-            // WAIT FOR LOGIN
-            // --------------------------------------------------
-
-            await page.waitForURL(
-                url =>
-                    !url
-                        .toString()
-                        .includes('/login'),
-                {
-                    timeout: 600000
-                }
-            );
-
-            console.log(
-                '✅ Login successful.'
-            );
-
-            await context.storageState({
-                path: AUTH_FILE
-            });
-
-            console.log(
-                '✅ New session saved.'
-            );
-
-            await outlookPage.close();
-
-        } else {
-
-            console.log(
-                '✅ Existing NexPeople session is valid.'
-            );
-        }
 
         // --------------------------------------------------
-        // OPEN ME
+        // MAIN ATTENDANCE TAB
         // --------------------------------------------------
 
-        await page.goto(
-            'https://nexpeople.cygnoz.com/me',
-            {
-                waitUntil: 'networkidle',
-                timeout: 60000
+        const page =
+            await context.newPage();
+
+        console.log(
+            'Attendance Firefox tab created.'
+        );
+
+        // --------------------------------------------------
+        // RETRY LOOP
+        // --------------------------------------------------
+
+        while (true) {
+
+            try {
+
+                const result =
+                    await runAttendanceAttempt(
+                        page,
+                        context
+                    );
+
+                // --------------------------------------------------
+                // SUCCESS
+                // --------------------------------------------------
+
+                console.log(
+                    'Showing success page...'
+                );
+
+                await showResultPage(
+                    page,
+                    {
+                        success:
+                            true,
+
+                        title:
+                            result.title,
+
+                        message:
+                            result.message,
+
+                        time:
+                            getCurrentTime(),
+
+                        retryAvailable:
+                            false
+                    }
+                );
+
+                console.log('');
+                console.log(
+                    '================================='
+                );
+
+                console.log(
+                    '🎉 ATTENDANCE SUCCESS'
+                );
+
+                console.log(
+                    'Result page will remain open.'
+                );
+
+                console.log(
+                    '================================='
+                );
+
+                // --------------------------------------------------
+                // KEEP BROWSER OPEN
+                // --------------------------------------------------
+
+                await new Promise(
+                    () => {}
+                );
+
+            } catch (error) {
+
+                console.error('');
+                console.error(
+                    '❌ Attendance attempt failed:'
+                );
+
+                console.error(
+                    error.message
+                );
+
+                // --------------------------------------------------
+                // FAILURE PAGE
+                // --------------------------------------------------
+
+                const retry =
+                    await showResultPage(
+                        page,
+                        {
+                            success:
+                                false,
+
+                            title:
+                                'Sorry, Attendance Not Marked',
+
+                            message:
+                                error.message,
+
+                            time:
+                                getCurrentTime(),
+
+                            retryAvailable:
+                                true
+                        }
+                    );
+
+                if (retry) {
+
+                    console.log('');
+                    console.log(
+                        '================================='
+                    );
+
+                    console.log(
+                        '🔄 RETRYING ATTENDANCE'
+                    );
+
+                    console.log(
+                        'Same Firefox tab will be reused.'
+                    );
+
+                    console.log(
+                        '================================='
+                    );
+
+                    continue;
+                }
             }
-        );
-
-        console.log(
-            'Me page loaded:',
-            page.url()
-        );
-
-        // --------------------------------------------------
-        // ATTENDANCE STATE
-        // --------------------------------------------------
-
-        const clockOutButton =
-            page
-                .locator('button')
-                .filter({
-                    hasText: /^Clock Out$/
-                })
-                .first();
-
-        const clockInButton =
-            page
-                .locator('button')
-                .filter({
-                    hasText: /^Clock In$/
-                })
-                .first();
-
-        // --------------------------------------------------
-        // ALREADY CLOCKED IN
-        // --------------------------------------------------
-
-        if (
-            await clockOutButton.count() > 0
-        ) {
-
-            console.log(
-                'Already clocked in.'
-            );
-
-            console.log(
-                'Attendance is already marked.'
-            );
-
-            markRunToday();
-
-            showFirefoxResult({
-                success: true,
-                title:
-                    'Attendance Already Marked',
-                message:
-                    'Your attendance is already marked for today.',
-                time: startTime
-            });
-
-            return;
         }
-
-        // --------------------------------------------------
-        // CLOCK IN NOT FOUND
-        // --------------------------------------------------
-
-        if (
-            await clockInButton.count() === 0
-        ) {
-            throw new Error(
-                'Clock In button was not found.'
-            );
-        }
-
-        if (
-            !(await clockInButton.isVisible())
-        ) {
-            throw new Error(
-                'Clock In button is not visible.'
-            );
-        }
-
-        if (
-            !(await clockInButton.isEnabled())
-        ) {
-            throw new Error(
-                'Clock In button is disabled.'
-            );
-        }
-
-        // --------------------------------------------------
-        // CLOCK IN
-        // --------------------------------------------------
-
-        console.log(
-            'Clock In button found.'
-        );
-
-        console.log(
-            'Clicking Clock In...'
-        );
-
-        await clockInButton.click();
-
-        console.log(
-            'Clock In clicked.'
-        );
-
-        // --------------------------------------------------
-        // VERIFY STATE CHANGED
-        // --------------------------------------------------
-
-        console.log(
-            'Verifying attendance status...'
-        );
-
-        await page.waitForTimeout(
-            3000
-        );
-
-        try {
-
-            await page
-                .locator('button')
-                .filter({
-                    hasText: /^Clock Out$/
-                })
-                .first()
-                .waitFor({
-                    state: 'visible',
-                    timeout: 10000
-                });
-
-        } catch {
-
-            throw new Error(
-                'Clock In was clicked, but NexPeople did not change to Clock Out. Attendance could not be confirmed.'
-            );
-        }
-
-        console.log(
-            '✅ NexPeople now shows Clock Out.'
-        );
-
-        console.log(
-            '✅ Attendance successfully verified.'
-        );
-
-        // --------------------------------------------------
-        // SAVE SUCCESS
-        // --------------------------------------------------
-
-        markRunToday();
-
-        console.log(
-            '✅ Today marked as completed.'
-        );
-
-        // --------------------------------------------------
-        // SHOW SUCCESS IN FIREFOX
-        // --------------------------------------------------
-
-        showFirefoxResult({
-            success: true,
-            title:
-                'Congrats! Attendance Marked',
-            message:
-                'Your attendance has been successfully marked for today.',
-            time: startTime
-        });
 
     } catch (error) {
 
-        console.error('');
         console.error(
-            '❌ Attendance automation failed:'
-        );
-        console.error(
+            'Fatal automation error:',
             error.message
         );
 
-        // --------------------------------------------------
-        // SHOW FAILURE IN FIREFOX
-        // --------------------------------------------------
-
-        showFirefoxResult({
-            success: false,
-            title:
-                'Sorry, Attendance Not Marked',
-            message:
-                `Your attendance was not marked. ${error.message}`,
-            time: new Date().toLocaleTimeString(
-                'en-IN',
-                {
-                    timeZone:
-                        'Asia/Kolkata'
-                }
-            )
-        });
-
     } finally {
 
-        if (browser) {
-            await browser.close();
-        }
+        // --------------------------------------------------
+        // DO NOT CLOSE BROWSER
+        // --------------------------------------------------
 
         console.log(
-            'Browser closed.'
+            'Attendance Automator finished its active work.'
         );
     }
 }
@@ -693,6 +1326,7 @@ async function startAttendance() {
 if (
     require.main === module
 ) {
+
     startAttendance();
 }
 

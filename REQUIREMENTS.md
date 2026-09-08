@@ -1,266 +1,170 @@
-Absolutely. Here’s a clean **`.md` requirement summary** you can directly save as `REQUIREMENTS.md`:
+# Attendance Automation Requirements
 
-````markdown
-# Attendance Automation – Requirements
+## 1. Automatic Attendance Scheduling
 
-## 1. Objective
+- The application must automatically run at 8:30 AM IST on working days.
+- The automation must be triggered using a systemd user timer.
+- The application must use the local system time / Asia-Kolkata timezone.
+- The application must not attempt attendance outside the configured attendance window.
+- The default attendance window is 08:30 AM to 09:30 AM.
 
-Build an automated attendance-marking system that runs automatically every day at the scheduled time, opens the required attendance website in Firefox, handles OTP verification when required, and provides a clear success or failure indication.
+## 2. NexPeople / HRMS Integration
 
----
+- The application must open the configured NexPeople HRMS URL.
+- The HRMS URL must be configurable through `.env`.
+- The application must detect whether the user is already authenticated.
+- If an existing valid session is available, it should reuse the saved session.
+- The application must save the authenticated browser session for future runs.
+- The application must navigate to the employee attendance page (`/me`).
 
-## 2. Automatic Scheduling
+## 3. HRMS Login
 
-- The application must run automatically using a Linux `systemd --user` timer.
-- Scheduled execution time: **8:30 AM IST every day**.
-- The timer must start automatically when the user logs in.
-- The application must be restartable using:
+- HRMS credentials must be loaded from `.env`.
+- Required environment variables:
+  - `HRMS_EMAIL`
+  - `HRMS_PASSWORD`
+  - `HRMS_URL`
+- The application must automatically fill the HRMS login credentials when login is required.
+- The application must detect successful login before continuing.
 
-```bash
-systemctl --user restart attendance-automator.timer
-````
+## 4. OTP Verification
 
-* The timer status can be verified using:
+- If HRMS requires OTP verification, the automation must open Outlook in a separate browser tab.
+- Outlook credentials must be configurable separately through `.env`.
+- Required environment variables:
+  - `OUTLOOK_EMAIL`
+  - `OUTLOOK_PASSWORD`
+- The application should automatically log in to Outlook when possible.
+- The user must be able to manually complete Outlook/OTP verification if automatic login is unavailable.
+- The automation must wait for the HRMS login to complete after OTP verification.
+- OTP verification timeout should be 10 minutes.
+- If OTP verification fails or times out, the automation must show a clear failure message.
 
-```bash
-systemctl --user list-timers --all attendance-automator.timer
-```
+## 5. Attendance Detection
 
----
+- The application must detect the current attendance state from the HRMS page.
+- If `Clock Out` is already available, the application should treat attendance as already marked.
+- If `Clock In` is available, the application should attempt to mark attendance.
+- The application must verify that the `Clock In` button exists before attempting to click it.
+- The application must verify that the `Clock In` button is enabled.
+- After clicking `Clock In`, the application must verify that attendance was successfully marked by checking for `Clock Out`.
 
-## 3. Attendance Automation Flow
+## 6. Duplicate Attendance Prevention
 
-When the scheduled service starts:
+- The application must maintain a daily execution state.
+- The state must be stored in:
+  - `state/last-run.json`
+- The application must prevent unnecessary repeated attendance attempts after a successful run.
+- Existing attendance should also be detected from the HRMS UI.
 
-1. Launch the attendance automation.
-2. Open the attendance website in a **new Firefox tab**.
-3. Navigate through the required attendance flow.
-4. Detect whether OTP verification is required.
-5. If OTP is required:
+## 7. Success Result Page
 
-   * Open/access Outlook in a **new Firefox tab**.
-   * Retrieve the required OTP.
-   * Use the OTP in the attendance website.
-6. Complete the attendance-marking process.
-7. Determine whether attendance was successfully marked.
+After successful attendance:
 
----
+- Display a browser result page.
+- Show a clear success message.
+- Show the attendance time.
+- Example:
+  - `Attendance Marked Successfully`
+  - `Your attendance has been marked.`
+- The success page must remain open so the user can see the result.
+- A successful result must not show a `Try Again` button.
 
-## 4. Browser Requirements
-
-* Firefox must be used.
-* The attendance website should open in a **new tab**, rather than unnecessarily replacing an existing browser window.
-* If Outlook is required for OTP retrieval, it should also open in a **new tab**.
-* Existing Firefox sessions should not be unnecessarily closed.
-
----
-
-## 5. Success Behaviour
-
-If attendance is successfully marked:
-
-* Show a clear success message.
-* Display:
-
-> **🎉 Congrats! Your attendance is marked.**
-
-* The success message should preferably appear in a **green modal/popup box** in the browser.
-* The user should be able to immediately understand that attendance was successfully completed.
-
-Example:
-
-```text
-┌──────────────────────────────────────┐
-│          🎉 SUCCESS                  │
-│                                      │
-│  Congrats! Your attendance is        │
-│  marked successfully.                │
-│                                      │
-│              [ OK ]                  │
-└──────────────────────────────────────┘
-```
-
----
-
-## 6. Failure Behaviour
+## 8. Failure Result Page
 
 If attendance cannot be marked:
 
-* Show a clear failure message in a browser tab/modal.
-* Display:
+- Display a clear failure page.
+- Explain that attendance was not marked.
+- Show the reason when available.
+- Provide a `Try Again` button.
+- Clicking `Try Again` must retry the attendance process without requiring the application to be restarted manually.
+- The browser should remain open while waiting for the user's decision.
 
-> **Sorry, your attendance is not marked.**
+## 9. Retry Mechanism
 
-* The message should explain that the automation was unsuccessful where possible.
-* The failure state should be visually distinct from the success state.
+- The automation must support repeated retry attempts.
+- Retries must happen within the same browser session/page where possible.
+- A failed attempt must not automatically terminate the application.
+- The user must be able to retry from the result page.
 
-Example:
+## 10. Test Mode
 
-```text
-┌──────────────────────────────────────┐
-│          ❌ ATTENDANCE FAILED         │
-│                                      │
-│  Sorry, your attendance is not       │
-│  marked.                              │
-│                                      │
-│              [ OK ]                  │
-└──────────────────────────────────────┘
-```
+- The application must support a test mode that bypasses the normal attendance time restriction.
+- Test mode must be enabled using:
 
----
+  `TEST_MODE=true`
 
-## 7. OTP Handling
+- When `TEST_MODE=true`, the application can be manually executed at any time for testing.
+- Normal production execution must still enforce the attendance time window.
+- Testing must use the same `.env` credentials and saved session as the production automation.
 
-The system must:
+## 11. Separate Test Runner
 
-* Detect when OTP verification is required.
-* Open Outlook in a new Firefox tab when necessary.
-* Retrieve the latest OTP.
-* Enter the OTP into the attendance page.
-* Continue the attendance process after successful OTP verification.
-* Handle OTP retrieval failure gracefully.
+- A separate `test-attendance.js` file must be available for testing.
+- The test runner must:
+  - Enable `TEST_MODE`.
+  - Import `startAttendance()` from `attendance.js`.
+  - Explicitly execute `startAttendance()`.
+- `attendance.js` must export:
 
-If OTP cannot be obtained:
+  `startAttendance`
 
-```text
-Sorry, your attendance is not marked.
-Reason: OTP could not be retrieved.
-```
+- `attendance.js` must only automatically execute `startAttendance()` when it is run directly.
+- This allows the main automation and test automation to share the same code.
 
----
+## 12. Environment Configuration
 
-## 8. Error Handling
+Sensitive credentials must not be hard-coded in JavaScript.
 
-The automation should gracefully handle:
+The `.env` file must contain:
 
-* Attendance website not loading.
-* Internet/network failure.
-* Firefox not running.
-* Website timeout.
-* Login/session expiry.
-* OTP not received.
-* Incorrect/expired OTP.
-* Attendance already marked.
-* Unexpected website changes.
-* Automation/script errors.
+- `HRMS_EMAIL`
+- `HRMS_PASSWORD`
+- `HRMS_URL`
+- `OUTLOOK_EMAIL`
+- `OUTLOOK_PASSWORD`
 
-The user should receive a clear failure message instead of the application silently failing.
+The application must load environment variables using `dotenv`.
 
----
+Credential files and authentication/session data must not be committed to Git.
 
-## 9. Logging
+## 13. Browser Automation
 
-The system should maintain useful logs for troubleshooting.
+- Browser automation must use Playwright.
+- The browser must run in visible mode (`headless: false`) so the user can observe the automation.
+- The current implementation uses Playwright Chromium.
+- The browser session must support multiple tabs/pages because Outlook may need to be opened separately from HRMS.
 
-Logs should indicate:
+## 14. Error Handling
 
-* Automation started.
-* Attendance website opened.
-* Login status.
-* OTP required/not required.
-* Outlook opened.
-* OTP retrieved.
-* OTP entered.
-* Attendance submission started.
-* Attendance successfully marked.
-* Attendance failed.
-* Reason for failure.
+The application must handle:
 
-Logs can be viewed using:
+- HRMS login failure.
+- Invalid/missing credentials.
+- OTP verification timeout.
+- Outlook login failure.
+- Missing Clock In button.
+- Disabled Clock In button.
+- Attendance marking failure.
+- Existing attendance.
+- Unexpected HRMS page state.
+- Browser/page errors.
 
-```bash
-journalctl --user -u attendance-automator.service -n 50 --no-pager
-```
+Errors should be displayed clearly to the user and logged in the terminal.
 
----
+## 15. Systemd Integration
 
-## 10. Code Validation
+The application must run automatically using:
 
-Before running the automation, JavaScript syntax should be validated using:
+- `attendance-automator.service`
+- `attendance-automator.timer`
 
-```bash
-node --check ~/attendance-automation/attendance.js
-```
+The timer must trigger the attendance automation at approximately 08:30 AM.
 
-The command must complete without syntax errors.
+The service should execute the Node.js attendance automation.
 
----
-
-## 11. systemd Configuration
-
-Required components:
-
-### Service
-
-```text
-attendance-automator.service
-```
-
-Responsible for executing the Node.js automation.
-
-### Timer
-
-```text
-attendance-automator.timer
-```
-
-Responsible for triggering the service every day at **08:30 AM IST**.
-
-Both should be enabled:
+The automation should be independently testable using:
 
 ```bash
-systemctl --user is-enabled attendance-automator.service
-systemctl --user is-enabled attendance-automator.timer
-```
-
-Expected result:
-
-```text
-enabled
-enabled
-```
-
----
-
-## 12. Current Status
-
-The system currently has:
-
-* `attendance-automator.service` → **enabled** ✅
-* `attendance-automator.timer` → **enabled** ✅
-* JavaScript syntax check → **passed** ✅
-* Timer successfully restarted → **yes** ✅
-* Next scheduled execution → **08:30 AM IST, September 4, 2026** ✅
-
-The remaining validation is to confirm that the actual attendance automation successfully completes the browser, OTP, and attendance-marking workflow during execution.
-
----
-
-## 13. Primary Success Criteria
-
-The project is considered successful when:
-
-* [ ] systemd timer runs automatically every day at 8:30 AM.
-* [ ] Firefox opens the attendance website in a new tab.
-* [ ] Attendance login/flow works automatically.
-* [ ] OTP is detected when required.
-* [ ] Outlook opens in a new tab when OTP is required.
-* [ ] OTP is retrieved correctly.
-* [ ] OTP is entered successfully.
-* [ ] Attendance is submitted.
-* [ ] Successful attendance displays a green success modal.
-* [ ] Failed attendance displays a clear failure modal.
-* [ ] Errors are logged.
-* [ ] The system does not silently fail.
-* [ ] Existing Firefox tabs/windows are not unnecessarily closed.
-
----
-
-# End Goal
-
-The final experience should be:
-
-**8:30 AM → Automation starts → Firefox opens attendance → OTP handled if required → Attendance submitted → User sees clear SUCCESS or FAILURE result.**
-
-```
-```
+node test-attendance.js
